@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.spec
+*.egg-info/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Excel temporary files
+~$*.xlsx
+~$*.xls
+
+# Output files
+*_Technical_Audit_*.xlsx
