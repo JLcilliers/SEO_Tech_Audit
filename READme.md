@@ -16,7 +16,7 @@ An automated tool that analyzes Screaming Frog exports and creates comprehensive
 
 ## 📥 Download
 
-**[Download Tech Audit Processor v1.0](https://github.com/JLc111ers/SEO_Tech_Audit/releases/latest)**
+
 
 Just download the .exe file from the releases page - no installation needed!
 
