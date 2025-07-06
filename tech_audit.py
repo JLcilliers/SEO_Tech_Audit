@@ -20,8 +20,13 @@ if sys.platform == "win32":
 
 class TechAuditProcessor:
     def __init__(self):
-        # Template file name
-        self.template_name = "Template __ Tech Audit.xlsx"
+        # Template file name - try multiple possible names
+        self.possible_template_names = [
+            "Template __ Tech Audit.xlsx",
+            "Template_Tech_Audit.xlsx",
+            "Template_Tech_Audit.xlsx.xlsx",
+            "Template Tech Audit.xlsx"
+        ]
         
         # Complete mapping of Item IDs to their data sources and calculations
         self.item_mappings = {
@@ -102,6 +107,18 @@ class TechAuditProcessor:
         if not os.path.exists(audit_folder):
             os.makedirs(audit_folder)
         return audit_folder
+    
+    def find_files_recursively(self, root_folder, file_extensions):
+        """Recursively find files with specific extensions in all subfolders"""
+        found_files = []
+        
+        for root, dirs, files in os.walk(root_folder):
+            for file in files:
+                if any(file.lower().endswith(ext.lower()) for ext in file_extensions):
+                    full_path = os.path.join(root, file)
+                    found_files.append(full_path)
+        
+        return found_files
         
     def process_audit(self, data_folder, client_name=""):
         """Main function to process the audit"""
@@ -136,8 +153,8 @@ class TechAuditProcessor:
             except Exception as e:
                 raise Exception(f"Failed to copy template to {output_path}: {str(e)}")
             
-            # Load Screaming Frog data
-            self.load_screaming_frog_data(data_folder)
+            # Load Screaming Frog data recursively
+            self.load_screaming_frog_data_recursive(data_folder)
             
             # Open the workbook and update values
             wb = load_workbook(output_path)
@@ -146,9 +163,9 @@ class TechAuditProcessor:
             print("Updating audit values...")
             self.update_audit_values(wb)
             
-            # Import other Excel files from the folder
+            # Import other Excel files from the folder recursively
             print("Importing Excel files...")
-            imported_count = self.import_existing_sheets(wb, data_folder)
+            imported_count = self.import_existing_sheets_recursive(wb, data_folder)
             
             # Save the workbook
             print("Saving workbook...")
@@ -174,17 +191,19 @@ class TechAuditProcessor:
             # First try to find the template in the PyInstaller bundle
             try:
                 # This is where PyInstaller puts bundled files
-                bundled_template = os.path.join(sys._MEIPASS, self.template_name)
-                if os.path.exists(bundled_template):
-                    return bundled_template
+                for template_name in self.possible_template_names:
+                    bundled_template = os.path.join(sys._MEIPASS, template_name)
+                    if os.path.exists(bundled_template):
+                        return bundled_template
             except:
                 pass
             
             # If not bundled, check next to the exe
             exe_dir = os.path.dirname(sys.executable)
-            template_next_to_exe = os.path.join(exe_dir, self.template_name)
-            if os.path.exists(template_next_to_exe):
-                return template_next_to_exe
+            for template_name in self.possible_template_names:
+                template_next_to_exe = os.path.join(exe_dir, template_name)
+                if os.path.exists(template_next_to_exe):
+                    return template_next_to_exe
             
             # If still not found, extract from embedded data
             return self.create_template_from_embedded()
@@ -192,18 +211,21 @@ class TechAuditProcessor:
         else:
             # Running as script - check script directory
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            template_path = os.path.join(script_dir, self.template_name)
-            if os.path.exists(template_path):
-                return template_path
+            for template_name in self.possible_template_names:
+                template_path = os.path.join(script_dir, template_name)
+                if os.path.exists(template_path):
+                    print(f"Found template: {template_name}")
+                    return template_path
             
             # If not found, create from embedded data
+            print("No template file found, creating basic template")
             return self.create_template_from_embedded()
     
     def create_template_from_embedded(self):
         """Create the template file from embedded data if it doesn't exist"""
         # Create a temporary file for the template
         temp_dir = tempfile.gettempdir()
-        temp_template_path = os.path.join(temp_dir, self.template_name)
+        temp_template_path = os.path.join(temp_dir, self.possible_template_names[0])  # Use first name as default
         
         # If temp template already exists and is recent (less than 1 hour old), use it
         if os.path.exists(temp_template_path):
@@ -259,12 +281,12 @@ class TechAuditProcessor:
         
         return temp_template_path
     
-    def load_screaming_frog_data(self, data_folder):
-        """Load all relevant Screaming Frog CSV files"""
-        print("Loading Screaming Frog data...")
+    def load_screaming_frog_data_recursive(self, data_folder):
+        """Load all relevant Screaming Frog CSV files from all subfolders"""
+        print("Loading Screaming Frog data recursively...")
         
         # List of all possible files we might need
-        files_to_load = [
+        files_to_find = [
             'internal_all.csv',
             'external_all.csv',
             'response_codes_all.csv',
@@ -281,16 +303,26 @@ class TechAuditProcessor:
             'redirect_loops_all.csv'
         ]
         
-        for file_name in files_to_load:
-            file_path = os.path.join(data_folder, file_name)
-            if os.path.exists(file_path):
-                try:
-                    self.screaming_frog_data[file_name] = pd.read_csv(file_path, low_memory=False)
-                    print(f"  Loaded {file_name}: {len(self.screaming_frog_data[file_name])} rows")
-                except Exception as e:
-                    print(f"  Error loading {file_name}: {str(e)}")
-            else:
-                print(f"  {file_name} not found (optional)")
+        # Find all CSV files recursively
+        found_csv_files = self.find_files_recursively(data_folder, ['.csv'])
+        
+        # Match found files with our target files
+        for target_file in files_to_find:
+            found = False
+            for csv_file_path in found_csv_files:
+                file_name = os.path.basename(csv_file_path)
+                if file_name.lower() == target_file.lower():
+                    try:
+                        self.screaming_frog_data[target_file] = pd.read_csv(csv_file_path, low_memory=False)
+                        relative_path = os.path.relpath(csv_file_path, data_folder)
+                        print(f"  Loaded {target_file}: {len(self.screaming_frog_data[target_file])} rows from {relative_path}")
+                        found = True
+                        break
+                    except Exception as e:
+                        print(f"  Error loading {csv_file_path}: {str(e)}")
+            
+            if not found:
+                print(f"  {target_file} not found (optional)")
     
     def update_audit_values(self, wb):
         """Update the audit values in the workbook"""
@@ -560,49 +592,88 @@ class TechAuditProcessor:
             print(f"Error calculating {calculation_type}: {str(e)}")
             return 0
     
-    def import_existing_sheets(self, workbook, folder_path):
-        """Import all Excel files from the folder as new sheets"""
-        print("Looking for Excel files to import...")
+    def import_existing_sheets_recursive(self, workbook, folder_path):
+        """Import all Excel files from all subfolders as new sheets"""
+        print("Looking for Excel files to import recursively...")
         
-        # Get the name of the current output file to skip it
-        current_file = os.path.basename(workbook.properties.title) if workbook.properties.title else None
+        # Find all Excel files recursively
+        excel_files = self.find_files_recursively(folder_path, ['.xlsx', '.xls'])
         
-        # Find all Excel files in the folder
-        excel_files = []
-        for file in os.listdir(folder_path):
-            if file.lower().endswith(('.xlsx', '.xls')) and not file.startswith('~'):
-                # Skip temporary Excel files (start with ~) and files that look like our output
-                if not file.startswith(('Technical_Audit_', 'Tech_Audit_')) and 'Technical_Audit' not in file:
-                    excel_files.append(file)
+        # Filter out temporary files and our own output files
+        filtered_excel_files = []
+        for file_path in excel_files:
+            file_name = os.path.basename(file_path)
+            if (not file_name.startswith('~') and 
+                not file_name.startswith('Technical_Audit_') and 
+                not file_name.startswith('Tech_Audit_') and 
+                'Technical_Audit' not in file_name):
+                filtered_excel_files.append(file_path)
         
-        if not excel_files:
+        if not filtered_excel_files:
             print("No Excel files found to import")
             return 0
         
-        print(f"Found {len(excel_files)} Excel file(s) to import")
+        print(f"Found {len(filtered_excel_files)} Excel file(s) to import")
         
-        # Get existing sheet names to avoid conflicts
+        # Get existing sheet names to track what we have
         existing_sheets = set(workbook.sheetnames)
         imported_count = 0
         
-        for excel_file in excel_files:
+        for excel_file_path in filtered_excel_files:
             try:
-                file_path = os.path.join(folder_path, excel_file)
-                print(f"\nImporting: {excel_file}")
+                file_name = os.path.basename(excel_file_path)
+                relative_path = os.path.relpath(excel_file_path, folder_path)
+                print(f"\nImporting: {relative_path}")
                 
                 # Open the source workbook
                 # Use data_only=True to get calculated values instead of formulas
-                source_wb = load_workbook(file_path, data_only=True)
+                source_wb = load_workbook(excel_file_path, data_only=True)
                 
                 # Copy each sheet from the source workbook
                 for sheet_name in source_wb.sheetnames:
-                    # Create unique sheet name if needed
-                    new_sheet_name = sheet_name
-                    counter = 1
-                    while new_sheet_name in existing_sheets:
-                        # Add number suffix if sheet name already exists
-                        new_sheet_name = f"{sheet_name}_{counter}"
-                        counter += 1
+                    # Use the original file name (without extension) as the base sheet name
+                    file_name_without_ext = os.path.splitext(file_name)[0]
+                    
+                    # If there's only one sheet, use the file name
+                    # If there are multiple sheets, use filename_sheetname format
+                    if len(source_wb.sheetnames) == 1:
+                        new_sheet_name = file_name_without_ext
+                    else:
+                        new_sheet_name = f"{file_name_without_ext}_{sheet_name}"
+                    
+                    # Ensure the sheet name is valid (Excel has 31 char limit and some invalid chars)
+                    invalid_chars = ['\\', '/', '*', '[', ']', ':', '?']
+                    for char in invalid_chars:
+                        new_sheet_name = new_sheet_name.replace(char, '_')
+                    
+                    # Truncate if too long (Excel limit is 31 characters)
+                    if len(new_sheet_name) > 31:
+                        new_sheet_name = new_sheet_name[:31]
+                    
+                    # Handle conflicts by using original naming without numbers
+                    # If there's a conflict, use the path info to make it unique
+                    original_new_sheet_name = new_sheet_name
+                    if new_sheet_name in existing_sheets:
+                        # Use folder structure to make unique
+                        folder_parts = os.path.dirname(relative_path).split(os.sep)
+                        if folder_parts and folder_parts[0]:  # If in subfolder
+                            folder_prefix = folder_parts[-1][:10]  # Use last folder name, max 10 chars
+                            new_sheet_name = f"{folder_prefix}_{file_name_without_ext}"
+                            if len(source_wb.sheetnames) > 1:
+                                new_sheet_name = f"{folder_prefix}_{file_name_without_ext}_{sheet_name}"
+                            # Truncate if too long
+                            if len(new_sheet_name) > 31:
+                                new_sheet_name = new_sheet_name[:31]
+                        
+                        # If still conflicts, just append a single letter
+                        if new_sheet_name in existing_sheets:
+                            for suffix in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                                test_name = f"{original_new_sheet_name[:29]}_{suffix}"
+                                if test_name not in existing_sheets:
+                                    new_sheet_name = test_name
+                                    break
+                    
+                    print(f"  - Sheet naming: '{sheet_name}' -> '{new_sheet_name}'")
                     
                     # Create new sheet in target workbook
                     new_sheet = workbook.create_sheet(new_sheet_name)
@@ -662,7 +733,7 @@ class TechAuditProcessor:
                 imported_count += 1
                 
             except Exception as e:
-                print(f"  - Error importing {excel_file}: {str(e)}")
+                print(f"  - Error importing {relative_path}: {str(e)}")
                 continue
         
         print(f"\nExcel file import complete - imported {imported_count} file(s)")
@@ -673,7 +744,7 @@ class TechAuditGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Tech Audit Processor")
-        self.root.geometry("600x470")
+        self.root.geometry("600x500")
         self.root.configure(bg='#f0f0f0')
         
         # Title
@@ -683,9 +754,10 @@ class TechAuditGUI:
         
         # Instructions
         instructions = tk.Label(root, 
-                               text="This tool will analyze your Screaming Frog exports\n" +
+                               text="This tool will recursively analyze your Screaming Frog exports\n" +
+                                    "from the selected folder and all its subfolders\n" +
                                     "and create a comprehensive technical audit report\n" +
-                                    "Any Excel files in the folder will be imported as additional tabs",
+                                    "Any Excel files found will be imported as additional tabs",
                                font=("Arial", 11), bg='#f0f0f0', justify="center")
         instructions.pack(pady=10)
         
@@ -756,7 +828,8 @@ class TechAuditGUI:
         location_text = "Desktop" if "Desktop" in output_location else os.path.basename(output_location)
         
         note_label = tk.Label(root, 
-                             text=f"Note: Reports will be saved to your {location_text}",
+                             text=f"Note: Reports will be saved to your {location_text}\n" +
+                                  "The tool will search recursively through all subfolders",
                              font=("Arial", 9, "italic"), bg='#f0f0f0', fg='#666666')
         note_label.pack(pady=5)
     
@@ -783,7 +856,7 @@ class TechAuditGUI:
         self.browse_button.config(state="disabled")
         self.client_entry.config(state="disabled")
         self.progress.start()
-        self.status_label.config(text="Processing... Please wait")
+        self.status_label.config(text="Processing... Please wait (searching subfolders)")
         
         # Run in separate thread
         thread = threading.Thread(target=self.run_processor, args=(folder_path, client_name))
@@ -831,6 +904,7 @@ class TechAuditGUI:
             
             if imported_count > 0:
                 success_msg += f"\n\nImported {imported_count} Excel file(s) as additional tabs"
+                success_msg += "\nFiles were searched recursively from all subfolders"
             
             messagebox.showinfo("Success", success_msg)
         else:
